@@ -21,7 +21,7 @@ def forward_diffusion_sample(x_0, t,config, device="cpu"):
     Takes an image and a timestep as input and 
     returns the noisy version of it
     """
-    sqrt_alphas_cumprod ,sqrt_one_minus_alphas_cumprod = init(config=config)
+    sqrt_alphas_cumprod ,sqrt_one_minus_alphas_cumprod,_,_,_ = init(config=config)
 
     noise = torch.randn_like(x_0)
     sqrt_alphas_cumprod_t = get_index_from_list(sqrt_alphas_cumprod, t, x_0.shape)
@@ -34,12 +34,12 @@ def forward_diffusion_sample(x_0, t,config, device="cpu"):
 
 def init(config):
 
-    T = config.T
-    start = config.start_betha
-    end = config.end_betha
+    # T = config.T
+    # start = 
+    # end = config.end_betha
 
     # Define beta schedule
-    betas = linear_beta_schedule(timesteps=T,start=start,end=end)
+    betas = linear_beta_schedule(timesteps=config.T,start=config.start_betha,end=config.end_betha)
 
     # Pre-calculate different terms for closed form
     alphas = 1. - betas
@@ -51,5 +51,5 @@ def init(config):
     posterior_variance = betas * (1. - alphas_cumprod_prev) / (1. - alphas_cumprod)
 
 
-    return sqrt_alphas_cumprod,sqrt_one_minus_alphas_cumprod
+    return sqrt_alphas_cumprod,sqrt_one_minus_alphas_cumprod,betas,sqrt_recip_alphas,posterior_variance
 

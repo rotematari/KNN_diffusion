@@ -111,6 +111,9 @@ class SimpleUnet(nn.Module):
             x = up(x, t)
         return self.output(x)
 
-model = SimpleUnet()
-print("Num params: ", sum(p.numel() for p in model.parameters()))
-model
+
+
+
+# model = SimpleUnet()
+# print("Num params: ", sum(p.numel() for p in model.parameters()))
+# model
