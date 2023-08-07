@@ -36,7 +36,7 @@ class Model(nn.Module):
             torch.ones(size=(1, 3, image_hight, image_width))))
 
         # Noising parameters
-
+        
         self.variance_schedual = np.array(
             [(t*(0.02-0.0001)/temporal_depth)+0.0001 for t in range(temporal_depth+1)])
         self.mean_schedual = np.array(
@@ -265,8 +265,7 @@ class Model(nn.Module):
                 if i % 2 == 0:
                     hight_encoding.append(np.sin(time/(i/self.image_hight)))
                 else:
-                    hight_encoding.append(
-                        np.cos(time/((i-1)/self.image_hight)))
+                    hight_encoding.append(np.cos(time/((i-1)/self.image_hight)))
             width_encoding = []
             for j in range(self.image_width):
                 if j % 2 == 0:

@@ -1,6 +1,5 @@
-import torch.nn.functional as F
 import torch
-
+import torch.nn.functional as F
 
 
 
@@ -16,28 +15,13 @@ def get_index_from_list(vals, t, x_shape):
     out = vals.gather(-1, t.cpu())
     return out.reshape(batch_size, *((1,) * (len(x_shape) - 1))).to(t.device)
 
-def forward_diffusion_sample(x_0, t,config, device="cpu"):
+def forward_diffusion_sample(x_0, t,timesteps=1000, device="cpu"):
     """ 
     Takes an image and a timestep as input and 
     returns the noisy version of it
     """
-    sqrt_alphas_cumprod ,sqrt_one_minus_alphas_cumprod,_,_,_ = init(config=config)
-
-    noise = torch.randn_like(x_0)
-    sqrt_alphas_cumprod_t = get_index_from_list(sqrt_alphas_cumprod, t, x_0.shape)
-    sqrt_one_minus_alphas_cumprod_t = get_index_from_list(sqrt_one_minus_alphas_cumprod, t, x_0.shape )
-    # mean + variance
-    return sqrt_alphas_cumprod_t.to(device) * x_0.to(device) \
-    + sqrt_one_minus_alphas_cumprod_t.to(device) * noise.to(device), noise.to(device)
-
-def init(config):
-
-    # T = config.T
-    # start = 
-    # end = config.end_betha
-
-    # Define beta schedule
-    betas = linear_beta_schedule(timesteps=config.T,start=config.start_betha,end=config.end_betha)
+    
+    betas = linear_beta_schedule(timesteps=timesteps)
 
     # Pre-calculate different terms for closed form
     alphas = 1. - betas
@@ -49,5 +33,18 @@ def init(config):
     posterior_variance = betas * (1. - alphas_cumprod_prev) / (1. - alphas_cumprod)
 
 
-    return sqrt_alphas_cumprod,sqrt_one_minus_alphas_cumprod,betas,sqrt_recip_alphas,posterior_variance
+    noise = torch.randn_like(x_0)
+    sqrt_alphas_cumprod_t = get_index_from_list(sqrt_alphas_cumprod, t, x_0.shape)
+    sqrt_one_minus_alphas_cumprod_t = get_index_from_list(
+        sqrt_one_minus_alphas_cumprod, t, x_0.shape
+    )
+    # mean + variance xt = sqrt(alpha_cumprod)*X_0 +sqrt(1-alpha_cumprod)*epsilon 
+    return sqrt_alphas_cumprod_t.to(device) * x_0.to(device) \
+    + sqrt_one_minus_alphas_cumprod_t.to(device) * noise.to(device), noise.to(device)
+
+def make_patched(embed):
+     
+     
+
+    return D 
 

@@ -13,8 +13,8 @@ from Noise_scheduler import forward_diffusion_sample,get_index_from_list,init
 from torch.optim import Adam
 
 
-def get_loss(model, x_0, t, device,config):
-    x_noisy, noise = forward_diffusion_sample(x_0, t=t, device=device,config=config)
+def get_loss(model, img, t, device,config):
+    x_noisy, noise = forward_diffusion_sample(img, t=t, device=device,config=config)
     noise_pred = model(x_noisy, t)
     return F.l1_loss(noise, noise_pred)
 
@@ -95,19 +95,55 @@ def sample_timestep(x,config, t,model):
         noise = torch.randn_like(x)
         return model_mean + torch.sqrt(posterior_variance_t) * noise 
 
-@torch.no_grad()
-def sample_plot_image(config,device):
+
+@torch.no_grad() 
+def sample_plot_image(config, device, model):
     # Sample noise
-    img_size = config.IMG_SIZE
+    
+    img_size = config.IMG_SIZE # Get the image size from the config object
+    T = config.T # Get the number of timesteps from the config object
+
+    # Samples a tensor of size (1, 3, img_size, img_size) with values drawn from a standard normal distribution
     img = torch.randn((1, 3, img_size, img_size), device=device)
+
+    plt.figure(figsize=(15,15)) 
+    plt.axis('off') 
+
+    num_images = 10 # Set the number of images to display
+    stepsize = int(T/num_images) # Calculate the step size for displaying images at regular intervals
+
+    # Iterate over the timesteps in reverse order, from T-1 to 0
+    for i in range(0,T)[::-1]:
+        # Create a tensor filled with the current timestep value
+        t = torch.full((1,), i, device=device, dtype=torch.long) 
+        # Update the image by sampling from the current timestep
+        img = sample_timestep(x=img, config=config, t=t, model=model) 
+        # Clamp the pixel values of the image to be within the range [-1.0, 1.0] to maintain the natural range of the distribution
+        img = torch.clamp(img, -1.0, 1.0)
+        # If the current timestep is a multiple of the step size
+        if i % stepsize == 0: 
+            plt.subplot(1, num_images, int(i/stepsize)+1) 
+            show_tensor_image(img.detach().cpu()) 
+    plt.show() 
+
+
+@torch.no_grad()
+def sample_plot_image(config,device,model):
+    # Sample noise
+    
+    img_size = config.IMG_SIZE
+    T = config.T
+    #samples an tesnsor in img size as the data in gaussian normal dist 
+    img = torch.randn((1, 3, img_size, img_size), device=device)
+
     plt.figure(figsize=(15,15))
     plt.axis('off')
     num_images = 10
     stepsize = int(T/num_images)
-
+    # from T to 0 
     for i in range(0,T)[::-1]:
         t = torch.full((1,), i, device=device, dtype=torch.long)
-        img = sample_timestep(img, t)
+        img = sample_timestep(x=img,config=config, t=t,model=model)
         # Edit: This is to maintain the natural range of the distribution
         img = torch.clamp(img, -1.0, 1.0)
         if i % stepsize == 0:
@@ -121,18 +157,20 @@ def train(config,model,dataloader,device):
     
     model.to(device)
     optimizer = Adam(model.parameters(), lr=0.001)
-    epochs = 1 # Try more!
+    epochs = config.epochs
 
     for epoch in range(epochs):
         for step, batch in enumerate(dataloader):
-            print(f"Epoch {epoch} | step {step:03d}")
+            
             optimizer.zero_grad()
-
+            # sample a noise timestep 
             t = torch.randint(0, config.T, (config.BATCH_SIZE,), device=device).long()
+
             loss = get_loss(model, batch[0], t,device=device,config=config)
             loss.backward()
             optimizer.step()
 
-        if epoch % 1 == 0 and step == 0:
-            print(f"Epoch {epoch} | step {step:03d} Loss: {loss.item()} ")
-            sample_plot_image()
+            if step % 10 == 0 or step == 0:
+                print(f"Epoch {epoch} | step {step:03d} Loss: {loss.item()}")
+                sample_plot_image(config=config,device=device,model=model)
+                plt.show()
