@@ -9,6 +9,9 @@ from torchvision import transforms
 import torchvision
 import numpy as np
 from Noise_scheduler import forward_diffusion_sample,get_index_from_list,init
+from datetime import datetime
+from os.path import isfile, join
+
 
 from torch.optim import Adam
 
@@ -106,8 +109,8 @@ def sample_plot_image(config, device, model):
     # Samples a tensor of size (1, 3, img_size, img_size) with values drawn from a standard normal distribution
     img = torch.randn((1, 3, img_size, img_size), device=device)
 
-    plt.figure(figsize=(15,15)) 
-    plt.axis('off') 
+    # plt.figure(figsize=(15,15)) 
+    # plt.axis('off') 
 
     num_images = 10 # Set the number of images to display
     stepsize = int(T/num_images) # Calculate the step size for displaying images at regular intervals
@@ -121,47 +124,59 @@ def sample_plot_image(config, device, model):
         # Clamp the pixel values of the image to be within the range [-1.0, 1.0] to maintain the natural range of the distribution
         img = torch.clamp(img, -1.0, 1.0)
         # If the current timestep is a multiple of the step size
-        if i % stepsize == 0: 
-            plt.subplot(1, num_images, int(i/stepsize)+1) 
-            show_tensor_image(img.detach().cpu()) 
-    plt.show() 
-
-
-@torch.no_grad()
-def sample_plot_image(config,device,model):
-    # Sample noise
-    
-    img_size = config.IMG_SIZE
-    T = config.T
-    #samples an tesnsor in img size as the data in gaussian normal dist 
-    img = torch.randn((1, 3, img_size, img_size), device=device)
-
-    plt.figure(figsize=(15,15))
-    plt.axis('off')
-    num_images = 10
-    stepsize = int(T/num_images)
-    # from T to 0 
-    for i in range(0,T)[::-1]:
-        t = torch.full((1,), i, device=device, dtype=torch.long)
-        img = sample_timestep(x=img,config=config, t=t,model=model)
-        # Edit: This is to maintain the natural range of the distribution
-        img = torch.clamp(img, -1.0, 1.0)
         if i % stepsize == 0:
             plt.subplot(1, num_images, int(i/stepsize)+1)
             show_tensor_image(img.detach().cpu())
-    plt.show()
+    # plt.show() 
 
+
+# @torch.no_grad()
+# def sample_plot_image(config,device,model):
+#     # Sample noise
+    
+#     img_size = config.IMG_SIZE
+#     T = config.T
+#     #samples an tesnsor in img size as the data in gaussian normal dist 
+#     img = torch.randn((1, 3, img_size, img_size), device=device)
+
+#     # plt.figure(figsize=(15,15))
+#     plt.axis('off')
+#     num_images = 10
+#     stepsize = int(T/num_images)
+#     # from T to 0 
+#     for i in range(0,T)[::-1]:
+#         t = torch.full((1,), i, device=device, dtype=torch.long)
+#         img = sample_timestep(x=img,config=config, t=t,model=model)
+#         # Edit: This is to maintain the natural range of the distribution
+#         img = torch.clamp(img, -1.0, 1.0)
+#         if i % stepsize == 0:
+#             plt.ioff()
+#             plt.subplot(1, num_images, int(i/stepsize)+1)
+#             show_tensor_image(img.detach().cpu())
+            
+    
+# @torch.compile
 def train(config,model,dataloader,device):
-    
 
     
+    plt.ioff()
+    plt.figure(figsize=(15,15))
+    plt.axis('off')
+    # plt.pause(10)
     model.to(device)
-    optimizer = Adam(model.parameters(), lr=0.001)
+    optimizer = Adam(model.parameters(), lr=config.lr,weight_decay=config.weight_decay)
     epochs = config.epochs
 
+    now = datetime.now()
+    timestamp = now.strftime('%m_%d_%H_%M')
+
     for epoch in range(epochs):
+
+
         for step, batch in enumerate(dataloader):
             
+            batch.to(device)
+
             optimizer.zero_grad()
             # sample a noise timestep 
             t = torch.randint(0, config.T, (config.BATCH_SIZE,), device=device).long()
@@ -170,7 +185,27 @@ def train(config,model,dataloader,device):
             loss.backward()
             optimizer.step()
 
-            if step % 10 == 0 or step == 0:
+
+            if step%50 == 0 :
                 print(f"Epoch {epoch} | step {step:03d} Loss: {loss.item()}")
-                sample_plot_image(config=config,device=device,model=model)
-                plt.show()
+
+            
+                
+        print(f"Epoch {epoch} | step {step:03d} Loss: {loss.item()}")
+        sample_plot_image(config=config,device=device,model=model)
+        plt.title(f"Epoch {epoch} | step {step:03d} Loss: {loss.item()}")
+        plt.pause(0.1)
+        # plt.show()
+
+        # Save a checkpoint at the end of each epoch
+        checkpoint = {
+            'epoch': epoch,
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'loss': loss,
+        }
+
+        path = r'rotem/deffiusio_model/models '
+        file_name = f'checkpoint_epoch_{epoch}_time_{timestamp}.pt'
+        torch.save(checkpoint, join(path,file_name)) 
+
