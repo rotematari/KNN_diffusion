@@ -16,10 +16,21 @@ from os.path import isfile, join
 from torch.optim import Adam
 
 
-def get_loss(model, img, t, device,config):
+def get_loss(model, img, t, device,config,loss_type='l1'):
     x_noisy, noise = forward_diffusion_sample(img, t=t, device=device,config=config)
     noise_pred = model(x_noisy, t)
-    return F.l1_loss(noise, noise_pred)
+
+    if loss_type == 'l1':
+        loss = F.l1_loss(noise, noise_pred)
+    elif loss_type == 'l2':
+        loss = F.mse_loss(noise, noise_pred)
+    elif loss_type == "huber":
+        loss = F.smooth_l1_loss(noise, noise_pred)
+    else:
+        raise NotImplementedError()
+    
+
+    return loss
 
 def show_tensor_image(image):
     reverse_transforms = transforms.Compose([
@@ -62,10 +73,12 @@ def load_transformed_dataset(config):
     ]
     data_transform = transforms.Compose(data_transforms)
 
-    train = torchvision.datasets.CIFAR10(root="/home/robotics20/Documents/deep/KNN_diffusion/rotem/deffiusio_model/data", download=True, 
+    train = torchvision.datasets.CIFAR10(root="/home/robotics20/Documents/deep/KNN_diffusion/rotem/deffiusio_model/data", download=True,
+                                         train=True, 
                                          transform=data_transform)
 
     test = torchvision.datasets.CIFAR10(root="/home/robotics20/Documents/deep/KNN_diffusion/rotem/deffiusio_model/data", download=True, 
+                                        train=False,
                                          transform=data_transform)
     return torch.utils.data.ConcatDataset([train, test])
 
@@ -175,13 +188,13 @@ def train(config,model,dataloader,device):
 
         for step, batch in enumerate(dataloader):
             
-            batch.to(device)
+            batch[0].to(device)
 
             optimizer.zero_grad()
             # sample a noise timestep 
             t = torch.randint(0, config.T, (config.BATCH_SIZE,), device=device).long()
 
-            loss = get_loss(model, batch[0], t,device=device,config=config)
+            loss = get_loss(model, batch[0], t,device=device,config=config,loss_type='huber')
             loss.backward()
             optimizer.step()
 
@@ -197,15 +210,16 @@ def train(config,model,dataloader,device):
         plt.pause(0.1)
         # plt.show()
 
-        # Save a checkpoint at the end of each epoch
-        checkpoint = {
-            'epoch': epoch,
-            'model_state_dict': model.state_dict(),
-            'optimizer_state_dict': optimizer.state_dict(),
-            'loss': loss,
-        }
+        if epoch%10 ==0:
+            # Save a checkpoint at the end of each epoch
+            checkpoint = {
+                'epoch': epoch,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'loss': loss,
+            }
 
-        path = r'rotem/deffiusio_model/models '
-        file_name = f'checkpoint_epoch_{epoch}_time_{timestamp}.pt'
-        torch.save(checkpoint, join(path,file_name)) 
+            path = r'rotem/deffiusio_model/models '
+            file_name = f'checkpoint_epoch_{epoch}_time_{timestamp}.pt'
+            torch.save(checkpoint, join(path,file_name)) 
 

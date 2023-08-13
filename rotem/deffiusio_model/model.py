@@ -18,35 +18,37 @@ from functools import partial
 from tqdm.auto import tqdm
 from einops import rearrange
 
+# from artical.n3net import non_local, ops
 
-class Block(nn.Module):
-    def __init__(self, in_ch, out_ch, time_emb_dim, up=False):
-        super().__init__()
-        self.time_mlp =  nn.Linear(time_emb_dim, out_ch)
-        if up:
-            self.conv1 = nn.Conv2d(2*in_ch, out_ch, 3, padding=1)
-            self.transform = nn.ConvTranspose2d(out_ch, out_ch, 4, 2, 1)
-        else:
-            self.conv1 = nn.Conv2d(in_ch, out_ch, 3, padding=1)
-            self.transform = nn.Conv2d(out_ch, out_ch, 4, 2, 1)
-        self.conv2 = nn.Conv2d(out_ch, out_ch, 3, padding=1)
-        self.bnorm1 = nn.BatchNorm2d(out_ch)
-        self.bnorm2 = nn.BatchNorm2d(out_ch)
-        self.relu  = nn.ReLU()
+
+# class Block(nn.Module):
+#     def __init__(self, in_ch, out_ch, time_emb_dim, up=False):
+#         super().__init__()
+#         self.time_mlp =  nn.Linear(time_emb_dim, out_ch)
+#         if up:
+#             self.conv1 = nn.Conv2d(2*in_ch, out_ch, 3, padding=1)
+#             self.transform = nn.ConvTranspose2d(out_ch, out_ch, 4, 2, 1)
+#         else:
+#             self.conv1 = nn.Conv2d(in_ch, out_ch, 3, padding=1)
+#             self.transform = nn.Conv2d(out_ch, out_ch, 4, 2, 1)
+#         self.conv2 = nn.Conv2d(out_ch, out_ch, 3, padding=1)
+#         self.bnorm1 = nn.BatchNorm2d(out_ch)
+#         self.bnorm2 = nn.BatchNorm2d(out_ch)
+#         self.relu  = nn.ReLU()
         
-    def forward(self, x, t, ):
-        # First Conv
-        h = self.bnorm1(self.relu(self.conv1(x)))
-        # Time embedding
-        time_emb = self.relu(self.time_mlp(t))
-        # Extend last 2 dimensions
-        time_emb = time_emb[(..., ) + (None, ) * 2]
-        # Add time channel
-        h = h + time_emb
-        # Second Conv
-        h = self.bnorm2(self.relu(self.conv2(h)))
-        # Down or Upsample
-        return self.transform(h)
+#     def forward(self, x, t, ):
+#         # First Conv
+#         h = self.bnorm1(self.relu(self.conv1(x)))
+#         # Time embedding
+#         time_emb = self.relu(self.time_mlp(t))
+#         # Extend last 2 dimensions
+#         time_emb = time_emb[(..., ) + (None, ) * 2]
+#         # Add time channel
+#         h = h + time_emb
+#         # Second Conv
+#         h = self.bnorm2(self.relu(self.conv2(h)))
+#         # Down or Upsample
+#         return self.transform(h)
 
 
 class SinusoidalPositionEmbeddings(nn.Module):
@@ -299,7 +301,7 @@ class Block(nn.Module):
         super().__init__()
         self.proj = nn.Conv2d(dim, dim_out, 3, padding = 1)
         self.norm = nn.GroupNorm(groups, dim_out)
-        self.act = nn.SiLU()
+        self.act = nn.GELU()
 
     def forward(self, x, scale_shift = None):
         x = self.proj(x)
@@ -318,7 +320,7 @@ class ResnetBlock(nn.Module):
     def __init__(self, dim, dim_out, *, time_emb_dim=None, groups=8):
         super().__init__()
         self.mlp = (
-            nn.Sequential(nn.SiLU(), nn.Linear(time_emb_dim, dim_out))
+            nn.Sequential(nn.GELU(), nn.Linear(time_emb_dim, dim_out))
             if exists(time_emb_dim)
             else None
         )
@@ -361,6 +363,40 @@ class Attention(nn.Module):
         out = einsum("b h i j, b h d j -> b h i d", attn, v)
         out = rearrange(out, "b h (x y) d -> b (h d) x y", x=h, y=w)
         return self.to_out(out)
+
+class ConvNextBlock(nn.Module):
+    """https://arxiv.org/abs/2201.03545"""
+
+    def __init__(self, dim, dim_out, *, time_emb_dim=None, mult=2, norm=True):
+        super().__init__()
+        self.mlp = (
+            nn.Sequential(nn.GELU(), nn.Linear(time_emb_dim, dim))
+            if exists(time_emb_dim)
+            else None
+        )
+
+        self.ds_conv = nn.Conv2d(dim, dim, 7, padding=3, groups=dim)
+
+        self.net = nn.Sequential(
+            nn.GroupNorm(1, dim) if norm else nn.Identity(),
+            nn.Conv2d(dim, dim_out * mult, 3, padding=1),
+            nn.GELU(),
+            nn.GroupNorm(1, dim_out * mult),
+            nn.Conv2d(dim_out * mult, dim_out, 3, padding=1),
+        )
+
+        self.res_conv = nn.Conv2d(dim, dim_out, 1) if dim != dim_out else nn.Identity()
+
+    def forward(self, x, time_emb=None):
+        h = self.ds_conv(x)
+
+        if exists(self.mlp) and exists(time_emb):
+            assert exists(time_emb), "time embedding must be passed in"
+            condition = self.mlp(time_emb)
+            h = h + rearrange(condition, "b c -> b c 1 1")
+
+        h = self.net(h)
+        return h + self.res_conv(x)
 
 class LinearAttention(nn.Module):
     def __init__(self, dim, heads=4, dim_head=32):
@@ -405,6 +441,7 @@ class Unet(nn.Module):
         convnext_mult=2,
     ):
         super().__init__()
+
 
         # determine dimensions
         self.channels = channels
@@ -506,6 +543,115 @@ class Unet(nn.Module):
 
         return self.final_conv(x)
 
-# model = SimpleUnet()
-# print("Num params: ", sum(p.numel() for p in model.parameters()))
-# model
+"""
+n3 block as in artical 
+
+"""
+
+
+def cnn_from_def(cnn_opt):
+    kernel = cnn_opt.get("kernel",3)
+    padding = (kernel-1)//2
+    cnn_bn = cnn_opt.get("bn",True)
+    cnn_depth = cnn_opt.get("depth",0)
+    cnn_channels = cnn_opt.get("features")
+    cnn_outchannels = cnn_opt.get("nplanes_out",)
+    chan_in = cnn_opt.get("nplanes_in")
+
+    if cnn_depth == 0:
+        cnn_outchannels=chan_in
+
+    cnn_layers = []
+    relu = nn.ReLU(inplace=True)
+
+    for i in range(cnn_depth-1):
+        cnn_layers.extend([
+            nn.Conv2d(chan_in,cnn_channels,kernel, 1, padding, bias=not cnn_bn),
+            nn.BatchNorm2d(cnn_channels) if cnn_bn else nn.Sequential(),
+            relu
+        ])
+        chan_in = cnn_channels
+
+    if cnn_depth > 0:
+        cnn_layers.append(
+            nn.Conv2d(chan_in,cnn_outchannels,kernel, 1, padding, bias=True)
+        )
+
+    net = nn.Sequential(*cnn_layers)
+    net.nplanes_out = cnn_outchannels
+    net.nplanes_in = cnn_opt.get("nplanes_in")
+    return net
+
+
+
+class embed_block(nn.Module):
+    def __init__(self,in_dim,out_dim ,) :
+        super().__init__()
+
+
+   
+class N3Block(nn.Module):
+    r"""
+    N3Block operating on a 2D images
+    """
+    def __init__(self, nplanes_in, k, patchsize=10, stride=5,
+                 nl_match_window=15,
+                 temp_opt={}, embedcnn_opt={}):
+        r"""
+        :param nplanes_in: number of input features
+        :param k: number of neighbors to sample
+        :param patchsize: size of patches that are matched
+        :param stride: stride with which patches are extracted
+        :param nl_match_window: size of matching window around each patch,
+            i.e. the nl_match_window x nl_match_window patches around a query patch
+            are used for matching
+        :param temp_opt: options for handling the the temperature parameter
+        :param embedcnn_opt: options for the embedding cnn, also shared by temperature cnn
+        """
+        super(N3Block, self).__init__()
+        self.patchsize = patchsize
+        self.stride = stride
+
+        # patch embedding
+        embedcnn_opt["nplanes_in"] = nplanes_in
+        self.embedcnn = cnn_from_def(embedcnn_opt)
+
+        # temperature cnn
+        with_temp = temp_opt.get("external_temp")
+        if with_temp:
+            tempcnn_opt = dict(**embedcnn_opt)
+            tempcnn_opt["nplanes_out"] = 1
+            self.tempcnn = cnn_from_def(tempcnn_opt)
+        else:
+            self.tempcnn = None
+
+        self.nplanes_in = nplanes_in
+        self.nplanes_out = (k+1) * nplanes_in
+
+        indexer = lambda xe_patch,ye_patch: non_local.index_neighbours(xe_patch, ye_patch, nl_match_window, exclude_self=True)
+        self.n3aggregation = non_local.N3Aggregation2D(indexing=indexer, k=k,
+                patchsize=patchsize, stride=stride, temp_opt=temp_opt)
+        self.k = k
+
+        self.reset_parameters()
+
+    def forward(self, x):
+        if self.k <= 0:
+            return x
+
+        xe = self.embedcnn(x)
+        ye = xe
+
+        xg = x
+        if self.tempcnn is not None:
+            log_temp = self.tempcnn(x)
+        else:
+            log_temp = None
+
+        x = self.n3aggregation(xg,xe,ye,log_temp=log_temp)
+        return x
+
+    def reset_parameters(self):
+        for m in self.modules():
+            if isinstance(m, (nn.BatchNorm2d)):
+                dncnn_batchnorm_init(m, kernelsize=3, b_min=0.025)
