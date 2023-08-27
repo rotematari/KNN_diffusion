@@ -113,6 +113,7 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataloader, lr_s
         print(f"avg epoch loss was {sum(epoch_losses)/len(epoch_losses)}")
         if (epoch+1)%200==0:
             pipeline = DDPMPipeline(unet=accelerator.unwrap_model(model), scheduler=noise_scheduler)
+
             with autocast(device_type=device,dtype=torch.float16):
                 images=pipeline(batch_size=10).images
                 ipyplot.plot_images(images,img_width=90)
@@ -123,7 +124,15 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataloader, lr_s
 def main():
     rn.seed(0)
     torch.manual_seed(0)
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    cuda_check = input("if cuda number has been check press 1 :\n")
+
+    if cuda_check != 1:
+        print("check cuda !!")
+        
+        return 
+
+
+    device = 'cuda:' if torch.cuda.is_available() else 'cpu'
 
     TRANSFORM = transforms.Compose(
         (transforms.ToTensor(), transforms.RandomHorizontalFlip(),transforms.Normalize([0.5], [0.5])))
