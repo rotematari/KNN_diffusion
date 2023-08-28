@@ -4,3 +4,5 @@ rotem/deffiusio_model/data
 wandb
 unet2dhuggin_face/rotem/test/data/cifar-10-batches-py
 rotem/deffiusio_model/data
+*.safetensors
+
