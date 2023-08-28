@@ -28,7 +28,7 @@ from transformers import get_cosine_schedule_with_warmup
 from torch.utils.data import Dataset, DataLoader
 import torchvision.transforms as transforms
 import matplotlib.pyplot as plt
-import ipyplot
+
 from dataclasses import dataclass
 import torch.nn.functional as F
 import math
