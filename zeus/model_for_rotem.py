@@ -42,7 +42,7 @@ from PIL import Image
 @dataclass
 class TrainingConfig:
     image_size = 32  # the generated image resolution
-    train_batch_size = 100
+    train_batch_size = 64
     eval_batch_size = 16  # how many images to sample during evaluation
     num_epochs = 1000
     gradient_accumulation_steps = 1
@@ -115,13 +115,16 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataloader, lr_s
             # Sample a random timestep for each image
             timesteps = torch.randint(0, noise_scheduler.num_train_timesteps, (bs,), device=clean_images.device).long()
 
+            #class label tensor
+            lables=lables.to(device)
+
             # Add noise to the clean images according to the noise magnitude at each timestep
             # (this is the forward diffusion process)
             noisy_images = noise_scheduler.add_noise(clean_images, noise, timesteps)
 
             with accelerator.accumulate(model):
                 # Predict the noise residual
-                noise_pred = model(noisy_images, timesteps, return_dict=False)[0]
+                noise_pred = model(noisy_images, timesteps, lables ,return_dict=False)[0]
                 loss = F.mse_loss(noise_pred, noise)
                 epoch_losses.append(loss.item())
                 accelerator.backward(loss)
@@ -193,6 +196,8 @@ def main():
         out_channels=3,  # the number of output channels
         layers_per_block=2,  # how many ResNet layers to use per UNet block
         block_out_channels=(128, 256, 512),  # the number of output channes for each UNet block
+        class_embed_type=None,
+        num_class_embeds=10,
         down_block_types=(
             "DownBlock2D",  # a regular ResNet downsampling block
             "AttnDownBlock2D",  # a ResNet downsampling block with spatial self-attention
